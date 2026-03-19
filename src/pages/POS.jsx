@@ -1,98 +1,216 @@
 // src/pages/POS.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../services/supabase';
 
 export default function POS() {
-  // Temporary local state for prototype interaction
+  const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [isCredit, setIsCredit] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [loading, setLoading] = useState(false);
 
-  // Mock available products (Just for UI testing "Add" button)
-  const availableItems = [
-    { id: 1, name: 'Amoxicillin 500mg', price: 5.00, stock: 50, type: 'Medicine' },
-    { id: 2, name: 'Blood Pressure Check', price: 2.00, stock: null, type: 'Service' },
-  ];
-
-  const addToCart = (item) => {
-    setCart([...cart, { ...item, quantity: 1 }]);
+  // 1. FETCH REAL PRODUCTS FROM SUPABASE
+  const fetchProducts = async () => {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('name', { ascending: true });
+    
+    if (error) console.error('Error fetching products:', error);
+    else setProducts(data || []);
   };
 
-  const resetSale = () => {
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  // 2. ADD TO CART LOGIC
+  const addToCart = (product) => {
+    if (product.stock <= 0) {
+      alert("Out of stock!");
+      return;
+    }
+    
+    const existingItem = cart.find(item => item.id === product.id);
+    if (existingItem) {
+      if (existingItem.quantity >= product.stock) {
+         alert("Cannot add more than available stock!");
+         return;
+      }
+      setCart(cart.map(item => 
+        item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+      ));
+    } else {
+      setCart([...cart, { ...product, quantity: 1 }]);
+    }
+  };
+
+  // 3. COMPLETE SALE (SAVE TO DATABASE)
+  const handleCompleteSale = async () => {
+    if (cart.length === 0) return;
+    if (isCredit && !customerName) return alert("Customer Name is required for credit sales.");
+    
+    setLoading(true);
+    const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+    // Step A: Create the Transaction record
+    const { data: transaction, error: txnError } = await supabase
+      .from('transactions')
+      .insert([{
+        customer_name: customerName || 'Walk-in Customer',
+        customer_phone: customerPhone || null,
+        total_amount: totalAmount,
+        payment_method: paymentMethod,
+        is_credit: isCredit,
+        status: isCredit ? 'unpaid' : 'paid'
+      }])
+      .select()
+      .single();
+
+    if (txnError) {
+      console.error(txnError);
+      alert("Error saving transaction");
+      setLoading(false);
+      return;
+    }
+
+    // Step B: Prepare and save the individual items sold
+    const transactionItems = cart.map(item => ({
+      transaction_id: transaction.id,
+      product_id: item.id,
+      quantity: item.quantity,
+      price_at_sale: item.price
+    }));
+
+    const { error: itemsError } = await supabase
+      .from('transaction_items')
+      .insert(transactionItems);
+
+    if (itemsError) console.error("Error saving items:", itemsError);
+
+    // Step C: Update the stock in the products table
+    for (const item of cart) {
+      await supabase
+        .from('products')
+        .update({ stock: item.stock - item.quantity })
+        .eq('id', item.id);
+    }
+
+    // Step D: Reset the UI and refresh products to show new stock
     setCart([]);
     setIsCredit(false);
     setCustomerName('');
     setCustomerPhone('');
-    alert("Sale Processed (UI Only)");
+    setPaymentMethod('Cash');
+    fetchProducts();
+    setLoading(false);
+    
+    alert("Sale Completed Successfully!");
   };
 
   return (
     <div className="flex h-full gap-6 max-w-7xl mx-auto">
       {/* LEFT: Search & Item Selection */}
       <div className="flex-1 flex flex-col gap-4">
-        <input type="text" placeholder="Search..." className="w-full p-3 border rounded-lg" />
+        <input type="text" placeholder="Search medicines..." className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {availableItems.map(item => (
-            <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm">
-              <div className="flex justify-between font-bold">
-                <span>{item.name}</span>
-                <span className="text-blue-600">${item.price.toFixed(2)}</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pb-4">
+          {products.length === 0 ? (
+            <div className="col-span-full p-8 text-center text-gray-500">No products found. Add some in the Inventory page.</div>
+          ) : (
+            products.map(item => (
+              <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-semibold text-gray-900 leading-tight">{item.name}</h3>
+                    <span className="text-blue-600 font-bold text-lg">${Number(item.price).toFixed(2)}</span>
+                  </div>
+                  <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-[10px] rounded-full font-medium uppercase">{item.type}</span>
+                </div>
+                <div className="flex justify-between items-center mt-4">
+                  <span className={`text-xs font-bold ${item.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    Stock: {item.stock}
+                  </span>
+                  <button 
+                    onClick={() => addToCart(item)}
+                    disabled={item.stock <= 0}
+                    className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
               </div>
-              <button 
-                onClick={() => addToCart(item)}
-                className="w-full mt-4 bg-blue-500 text-white py-1.5 rounded-md text-sm hover:bg-blue-600"
-              >
-                Add to Cart
-              </button>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
 
       {/* RIGHT: Cart Interface */}
-      <div className="w-[400px] bg-white rounded-xl border shadow-sm flex flex-col">
-        <div className="p-4 border-b">
-          <h2 className="text-lg font-bold">Cart</h2>
+      <div className="w-[400px] bg-white rounded-xl border shadow-sm flex flex-col flex-shrink-0">
+        <div className="p-4 border-b bg-gray-50 rounded-t-xl">
+          <h2 className="text-lg font-bold text-gray-900">Current Sale</h2>
           <input 
             value={customerName} 
             onChange={(e) => setCustomerName(e.target.value)}
-            placeholder="Customer Name" 
-            className="w-full mt-2 p-2 border rounded text-sm" 
+            placeholder="Customer Name (Optional)" 
+            className="w-full mt-3 p-2 border border-gray-200 rounded-md text-sm outline-none focus:ring-1 focus:ring-blue-500 bg-white" 
           />
         </div>
 
-        {/* Cart Items List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {/* Cart Items */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
           {cart.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-gray-400 text-sm italic">Cart is empty</div>
+            <div className="h-full flex items-center justify-center text-gray-400 text-sm">Cart is empty</div>
           ) : (
             cart.map((item, idx) => (
-              <div key={idx} className="flex justify-between items-center text-sm border-b pb-2">
-                <span>{item.name} x1</span>
-                <span className="font-bold">${item.price.toFixed(2)}</span>
+              <div key={idx} className="flex justify-between items-center text-sm border-b border-gray-100 pb-2">
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-900">{item.name}</span>
+                  <span className="text-xs text-gray-500">${Number(item.price).toFixed(2)} x {item.quantity}</span>
+                </div>
+                <span className="font-bold text-gray-900">${(item.price * item.quantity).toFixed(2)}</span>
               </div>
             ))
           )}
         </div>
 
         {/* Checkout Logic */}
-        <div className="p-4 border-t bg-gray-50 rounded-b-xl space-y-4">
-          <div className="flex justify-between items-center">
-            <span className="text-gray-500 font-medium">Grand Total</span>
+        <div className="p-4 border-t border-gray-200 flex flex-col gap-4">
+          <div className="flex justify-between items-end">
+            <span className="text-sm text-gray-500">Grand Total</span>
             <span className="text-2xl font-bold text-gray-900">
-               ${cart.reduce((sum, item) => sum + item.price, 0).toFixed(2)}
+               ${cart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}
             </span>
           </div>
 
-          {/* Credit Toggle Interaction */}
-          <div className="flex justify-between items-center p-2 bg-white border rounded">
-            <span className="text-sm font-medium">Credit Sale?</span>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500 font-medium">Payment Method</label>
+            <select 
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="w-full p-2.5 border border-gray-200 rounded-md text-sm outline-none bg-white"
+            >
+              <option value="Zaad">Zaad Dollar</option>
+              <option value="Zaad">Zaad Cash</option>
+              <option value="E-Dahab">E-Dahab Dollar</option>
+              <option value="E-Dahab">E-Dahab Cash</option>
+              <option value="Cash">Cash Dollar</option>
+              <option value="Cash">Cash Shillling</option>
+              <option value="Account">Account</option>
+      
+            </select>
+          </div>
+
+          {/* Credit Toggle */}
+          <div className="bg-red-50 p-3 rounded-lg border border-red-100 flex justify-between items-center">
+            <span className="text-sm text-red-700 font-bold">Mark as Credit (Debt)</span>
             <input 
               type="checkbox" 
               checked={isCredit} 
               onChange={() => setIsCredit(!isCredit)} 
-              className="w-5 h-5 accent-blue-500"
+              className="w-5 h-5 accent-red-600"
             />
           </div>
 
@@ -100,19 +218,19 @@ export default function POS() {
             <input 
               value={customerPhone}
               onChange={(e) => setCustomerPhone(e.target.value)}
-              placeholder="Customer Phone (Required)" 
-              className="w-full p-2 border border-red-200 rounded text-sm bg-red-50" 
+              placeholder="Customer Phone Number" 
+              className="w-full p-2 border border-red-200 rounded-md text-sm outline-none bg-white" 
             />
           )}
 
           <button 
-            disabled={cart.length === 0}
-            onClick={resetSale}
-            className={`w-full py-3 rounded-md font-bold text-white transition-all ${
-              cart.length > 0 ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-300 cursor-not-allowed'
+            disabled={cart.length === 0 || loading}
+            onClick={handleCompleteSale}
+            className={`w-full py-3 rounded-md font-bold text-white transition-all mt-2 ${
+              cart.length > 0 && !loading ? 'bg-[#86d39e] hover:bg-[#74c68d]' : 'bg-gray-300 cursor-not-allowed'
             }`}
           >
-            Complete Sale
+            {loading ? 'Processing...' : 'Complete Sale'}
           </button>
         </div>
       </div>
