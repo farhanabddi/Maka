@@ -1,10 +1,11 @@
 // src/pages/Reports.jsx
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
-import { TrendingUp, TrendingDown, DollarSign, Calendar, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Activity, Download } from 'lucide-react';
 
 export default function Reports() {
-  const [timeframe, setTimeframe] = useState('today');
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({
     revenue: 0,
@@ -14,31 +15,23 @@ export default function Reports() {
     salesCount: 0
   });
 
-  // Helper function to get the start date based on the selected timeframe
-  const getStartDate = (filter) => {
-    const date = new Date();
-    if (filter === 'today') {
-      date.setHours(0, 0, 0, 0);
-    } else if (filter === 'week') {
-      date.setDate(date.getDate() - 7);
-    } else if (filter === 'month') {
-      date.setMonth(date.getMonth() - 1);
-    } else if (filter === 'year') {
-      date.setFullYear(date.getFullYear() - 1);
-    }
-    return date.toISOString();
-  };
-
   const generateReport = async () => {
     setLoading(true);
-    const startDate = getStartDate(timeframe);
+    
+    // Format dates to capture the exact start of the Start Date to the end of the End Date
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
 
     try {
       // 1. Fetch Transactions (Sales)
       const { data: transactions, error: txnError } = await supabase
         .from('transactions')
         .select('total_amount, status')
-        .gte('created_at', startDate);
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
 
       if (txnError) throw txnError;
 
@@ -46,7 +39,8 @@ export default function Reports() {
       const { data: expenses, error: expError } = await supabase
         .from('expenses')
         .select('amount')
-        .gte('created_at', startDate);
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
 
       if (expError) throw expError;
 
@@ -69,7 +63,6 @@ export default function Reports() {
 
       const netProfit = revenue - totalExpenses;
 
-      // 4. Update state
       setReportData({
         revenue,
         creditPending,
@@ -86,12 +79,27 @@ export default function Reports() {
     }
   };
 
-  // Re-run the report whenever the timeframe changes
+  // Run the report whenever dates change
   useEffect(() => {
     generateReport();
-  }, [timeframe]);
+  }, [startDate, endDate]);
 
-  // UI Component for Stats
+  // Function to export the visual report straight to a Word document
+  const exportToWord = () => {
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Financial Report</title></head><body>";
+    const footer = "</body></html>";
+    const reportHtml = document.getElementById("report-content").innerHTML;
+    const sourceHTML = header + reportHtml + footer;
+    
+    const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+    const fileDownload = document.createElement("a");
+    document.body.appendChild(fileDownload);
+    fileDownload.href = source;
+    fileDownload.download = `Financial_Report_${startDate}_to_${endDate}.doc`;
+    fileDownload.click();
+    document.body.removeChild(fileDownload);
+  };
+
   const ReportCard = ({ title, value, subtitle, icon, colorClass }) => (
     <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
       <div className="flex justify-between items-start mb-4">
@@ -110,104 +118,126 @@ export default function Reports() {
   return (
     <div className="max-w-6xl mx-auto pb-10">
       
-      {/* Header & Filters */}
+      {/* Header & Custom Date Filters */}
       <div className="flex flex-col md:flex-row justify-between items-md-end gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Financial Reports</h1>
-          <p className="text-sm text-gray-500 mt-1">Live Profit & Loss calculations.</p>
+          <p className="text-sm text-gray-500 mt-1">Select dates to calculate Profit & Loss.</p>
         </div>
 
-        <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200 shadow-sm">
-          <Calendar size={16} className="text-gray-400 ml-2" />
-          <select 
-            value={timeframe} 
-            onChange={(e) => setTimeframe(e.target.value)}
-            className="p-2 bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
-          >
-            <option value="today">Today's Report</option>
-            <option value="week">Last 7 Days</option>
-            <option value="month">This Month</option>
-            <option value="year">This Year</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Main KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <ReportCard 
-          title="Actual Revenue" 
-          value={loading ? '...' : `$${reportData.revenue.toFixed(2)}`}
-          subtitle={`${reportData.salesCount} total invoices`}
-          icon={<DollarSign size={24} className="text-blue-600" />}
-          colorClass="bg-blue-100"
-        />
-        
-        <ReportCard 
-          title="Unpaid Debts" 
-          value={loading ? '...' : `$${reportData.creditPending.toFixed(2)}`}
-          subtitle="Money owed to you"
-          icon={<Activity size={24} className="text-orange-600" />}
-          colorClass="bg-orange-100"
-        />
-
-        <ReportCard 
-          title="Total Expenses" 
-          value={loading ? '...' : `$${reportData.expenses.toFixed(2)}`}
-          subtitle="Operating costs"
-          icon={<TrendingDown size={24} className="text-red-600" />}
-          colorClass="bg-red-100"
-        />
-
-        <ReportCard 
-          title="Net Profit" 
-          value={loading ? '...' : `$${reportData.netProfit.toFixed(2)}`}
-          subtitle="Revenue minus Expenses"
-          icon={<TrendingUp size={24} className="text-green-600" />}
-          colorClass="bg-green-100 border-b-4 border-b-green-500"
-        />
-      </div>
-
-      {/* Visual Summary Area */}
-      <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center min-h-[300px]">
-        {loading ? (
-           <div className="animate-pulse flex flex-col items-center">
-             <div className="h-12 w-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-             <p className="text-gray-500 font-medium">Crunching the numbers...</p>
-           </div>
-        ) : (
-          <div className="w-full max-w-2xl text-center">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">Profitability Summary</h2>
-            
-            {/* Simple CSS Progress Bar representing Profit Margin */}
-            <div className="relative w-full h-8 bg-red-100 rounded-full overflow-hidden mb-4 flex">
-               {reportData.revenue > 0 ? (
-                 <div 
-                   className="h-full bg-green-500 transition-all duration-1000 ease-out"
-                   style={{ 
-                     width: `${Math.max(0, Math.min(100, (reportData.netProfit / reportData.revenue) * 100))}%` 
-                   }}
-                 ></div>
-               ) : (
-                 <div className="w-full h-full bg-gray-200"></div>
-               )}
-            </div>
-            
-            <div className="flex justify-between text-sm font-bold text-gray-500 px-2">
-              <span>Expenses (${reportData.expenses.toFixed(2)})</span>
-              <span>Revenue (${reportData.revenue.toFixed(2)})</span>
-            </div>
-
-            <p className="mt-8 text-gray-600">
-              For the selected period, your pharmacy generated <strong>${reportData.revenue.toFixed(2)}</strong> in collected cash. 
-              After deducting <strong>${reportData.expenses.toFixed(2)}</strong> in operating expenses, your take-home profit is 
-              <span className={`font-black ml-1 ${reportData.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                ${reportData.netProfit.toFixed(2)}
-              </span>.
-            </p>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-gray-200 shadow-sm">
+            <span className="text-xs font-bold text-gray-400">From</span>
+            <input 
+              type="date" 
+              value={startDate} 
+              onChange={(e) => setStartDate(e.target.value)}
+              className="bg-transparent text-sm font-bold text-gray-700 outline-none"
+            />
+            <span className="text-xs font-bold text-gray-400 ml-2">To</span>
+            <input 
+              type="date" 
+              value={endDate} 
+              onChange={(e) => setEndDate(e.target.value)}
+              className="bg-transparent text-sm font-bold text-gray-700 outline-none"
+            />
           </div>
-        )}
+          
+          <button 
+            onClick={exportToWord}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors shadow-sm"
+          >
+            <Download size={16} />
+            Download Word
+          </button>
+        </div>
       </div>
 
+      {/* This wrapper ID is grabbed by the export function to make the Word document */}
+      <div id="report-content">
+        <div style={{ display: 'none' }}>
+           {/* This hidden header only shows up in the downloaded word document */}
+           <h2>Pharmacy Financial Report</h2>
+           <p><strong>Date Range:</strong> {startDate} to {endDate}</p>
+           <hr/>
+        </div>
+
+        {/* Main KPI Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <ReportCard 
+            title="Actual Revenue" 
+            value={loading ? '...' : `$${reportData.revenue.toFixed(2)}`}
+            subtitle={`${reportData.salesCount} total invoices`}
+            icon={<DollarSign size={24} className="text-blue-600" />}
+            colorClass="bg-blue-100"
+          />
+          
+          <ReportCard 
+            title="Unpaid Debts" 
+            value={loading ? '...' : `$${reportData.creditPending.toFixed(2)}`}
+            subtitle="Money owed to you"
+            icon={<Activity size={24} className="text-orange-600" />}
+            colorClass="bg-orange-100"
+          />
+
+          <ReportCard 
+            title="Total Expenses" 
+            value={loading ? '...' : `$${reportData.expenses.toFixed(2)}`}
+            subtitle="Operating costs"
+            icon={<TrendingDown size={24} className="text-red-600" />}
+            colorClass="bg-red-100"
+          />
+
+          <ReportCard 
+            title="Net Profit" 
+            value={loading ? '...' : `$${reportData.netProfit.toFixed(2)}`}
+            subtitle="Revenue minus Expenses"
+            icon={<TrendingUp size={24} className="text-green-600" />}
+            colorClass="bg-green-100 border-b-4 border-b-green-500"
+          />
+        </div>
+
+        {/* Visual Summary Area */}
+        <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center min-h-[300px]">
+          {loading ? (
+             <div className="animate-pulse flex flex-col items-center">
+               <div className="h-12 w-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+               <p className="text-gray-500 font-medium">Crunching the numbers...</p>
+             </div>
+          ) : (
+            <div className="w-full max-w-2xl text-center">
+              <h2 className="text-xl font-bold text-gray-900 mb-6">Profitability Summary</h2>
+              
+              {/* Progress Bar (Hidden in Word doc, but works in browser) */}
+              <div className="relative w-full h-8 bg-red-100 rounded-full overflow-hidden mb-4 flex" data-html2canvas-ignore>
+                 {reportData.revenue > 0 ? (
+                   <div 
+                     className="h-full bg-green-500 transition-all duration-1000 ease-out"
+                     style={{ 
+                       width: `${Math.max(0, Math.min(100, (reportData.netProfit / reportData.revenue) * 100))}%` 
+                     }}
+                   ></div>
+                 ) : (
+                   <div className="w-full h-full bg-gray-200"></div>
+                 )}
+              </div>
+              
+              <div className="flex justify-between text-sm font-bold text-gray-500 px-2 mb-8">
+                <span>Expenses (${reportData.expenses.toFixed(2)})</span>
+                <span>Revenue (${reportData.revenue.toFixed(2)})</span>
+              </div>
+
+              <p className="text-gray-600">
+                For the period of {startDate} to {endDate}, your pharmacy generated <strong>${reportData.revenue.toFixed(2)}</strong> in collected cash. 
+                After deducting <strong>${reportData.expenses.toFixed(2)}</strong> in operating expenses, your take-home profit is 
+                <strong className={`ml-1 ${reportData.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  ${reportData.netProfit.toFixed(2)}
+                </strong>.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

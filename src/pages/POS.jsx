@@ -4,6 +4,7 @@ import { supabase } from '../services/supabase';
 
 export default function POS() {
   const [products, setProducts] = useState([]);
+  const [searchTerm, setSearchTerm] = useState(''); // NEW: Search state
   const [cart, setCart] = useState([]);
   const [isCredit, setIsCredit] = useState(false);
   const [customerName, setCustomerName] = useState('');
@@ -26,16 +27,25 @@ export default function POS() {
     fetchProducts();
   }, []);
 
-  // 2. ADD TO CART LOGIC
+  // 2. INSTANT SEARCH FILTERING
+  // This filters the products in milliseconds without hitting the database again
+  const filteredProducts = products.filter(product => 
+    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.type.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // 3. ADD TO CART LOGIC (Ignores stock if type is 'Service')
   const addToCart = (product) => {
-    if (product.stock <= 0) {
+    const isService = product.type === 'Service';
+
+    if (!isService && product.stock <= 0) {
       alert("Out of stock!");
       return;
     }
     
     const existingItem = cart.find(item => item.id === product.id);
     if (existingItem) {
-      if (existingItem.quantity >= product.stock) {
+      if (!isService && existingItem.quantity >= product.stock) {
          alert("Cannot add more than available stock!");
          return;
       }
@@ -47,15 +57,16 @@ export default function POS() {
     }
   };
 
-  // 3. COMPLETE SALE (SAVE TO DATABASE)
+  // 4. COMPLETE SALE
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
     if (isCredit && !customerName) return alert("Customer Name is required for credit sales.");
     
+    // INSTANTLY DISABLE THE BUTTON
     setLoading(true);
+    
     const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-    // Step A: Create the Transaction record
     const { data: transaction, error: txnError } = await supabase
       .from('transactions')
       .insert([{
@@ -72,11 +83,10 @@ export default function POS() {
     if (txnError) {
       console.error(txnError);
       alert("Error saving transaction");
-      setLoading(false);
+      setLoading(false); // Re-enable if there is an error
       return;
     }
 
-    // Step B: Prepare and save the individual items sold
     const transactionItems = cart.map(item => ({
       transaction_id: transaction.id,
       product_id: item.id,
@@ -90,22 +100,25 @@ export default function POS() {
 
     if (itemsError) console.error("Error saving items:", itemsError);
 
-    // Step C: Update the stock in the products table
+    // Update the stock ONLY if the item is not a Service
     for (const item of cart) {
-      await supabase
-        .from('products')
-        .update({ stock: item.stock - item.quantity })
-        .eq('id', item.id);
+      if (item.type !== 'Service') {
+        await supabase
+          .from('products')
+          .update({ stock: item.stock - item.quantity })
+          .eq('id', item.id);
+      }
     }
 
-    // Step D: Reset the UI and refresh products to show new stock
+    // Reset UI and re-enable button
     setCart([]);
     setIsCredit(false);
     setCustomerName('');
     setCustomerPhone('');
     setPaymentMethod('Cash');
+    setSearchTerm(''); // Clear the search bar
     fetchProducts();
-    setLoading(false);
+    setLoading(false); 
     
     alert("Sale Completed Successfully!");
   };
@@ -114,13 +127,21 @@ export default function POS() {
     <div className="flex h-full gap-6 max-w-7xl mx-auto">
       {/* LEFT: Search & Item Selection */}
       <div className="flex-1 flex flex-col gap-4">
-        <input type="text" placeholder="Search medicines..." className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+        <input 
+          type="text" 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search medicines or services..." 
+          className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" 
+        />
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pb-4">
-          {products.length === 0 ? (
-            <div className="col-span-full p-8 text-center text-gray-500">No products found. Add some in the Inventory page.</div>
+          {filteredProducts.length === 0 ? (
+            <div className="col-span-full p-8 text-center text-gray-500">
+              {searchTerm ? 'No products match your search.' : 'No products found. Add some in the Inventory page.'}
+            </div>
           ) : (
-            products.map(item => (
+            filteredProducts.map(item => (
               <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-start mb-2">
@@ -130,12 +151,12 @@ export default function POS() {
                   <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-[10px] rounded-full font-medium uppercase">{item.type}</span>
                 </div>
                 <div className="flex justify-between items-center mt-4">
-                  <span className={`text-xs font-bold ${item.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    Stock: {item.stock}
+                  <span className={`text-xs font-bold ${item.type === 'Service' ? 'text-blue-500' : item.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {item.type === 'Service' ? 'Unlimited' : `Stock: ${item.stock}`}
                   </span>
                   <button 
                     onClick={() => addToCart(item)}
-                    disabled={item.stock <= 0}
+                    disabled={item.type !== 'Service' && item.stock <= 0}
                     className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors"
                   >
                     Add
@@ -159,7 +180,6 @@ export default function POS() {
           />
         </div>
 
-        {/* Cart Items */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
           {cart.length === 0 ? (
             <div className="h-full flex items-center justify-center text-gray-400 text-sm">Cart is empty</div>
@@ -176,11 +196,10 @@ export default function POS() {
           )}
         </div>
 
-        {/* Checkout Logic */}
         <div className="p-4 border-t border-gray-200 flex flex-col gap-4">
           <div className="flex justify-between items-end">
             <span className="text-sm text-gray-500">Grand Total</span>
-            <span className="text-2xl font-bold text-gray-900">
+            <span className="text-3xl font-black text-gray-900">
                ${cart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}
             </span>
           </div>
@@ -192,18 +211,16 @@ export default function POS() {
               onChange={(e) => setPaymentMethod(e.target.value)}
               className="w-full p-2.5 border border-gray-200 rounded-md text-sm outline-none bg-white"
             >
-              <option value="Zaad">Zaad Dollar</option>
-              <option value="Zaad">Zaad Cash</option>
-              <option value="E-Dahab">E-Dahab Dollar</option>
-              <option value="E-Dahab">E-Dahab Cash</option>
-              <option value="Cash">Cash Dollar</option>
-              <option value="Cash">Cash Shillling</option>
+             <option value="Zaad Dollar ">Zaad Dollar</option>
+              <option value="Zaad Cash ">Zaad Cash</option>
+              <option value="E-Dahab Dollar">E-Dahab Dollar</option>
+              <option value="E-Dahab Cash">E-Dahab Cash</option>
+              <option value="Cash Dollar">Cash Dollar</option>
+              <option value="Cash Shillling">Cash Shillling</option>
               <option value="Account">Account</option>
-      
             </select>
           </div>
 
-          {/* Credit Toggle */}
           <div className="bg-red-50 p-3 rounded-lg border border-red-100 flex justify-between items-center">
             <span className="text-sm text-red-700 font-bold">Mark as Credit (Debt)</span>
             <input 
@@ -226,11 +243,20 @@ export default function POS() {
           <button 
             disabled={cart.length === 0 || loading}
             onClick={handleCompleteSale}
-            className={`w-full py-3 rounded-md font-bold text-white transition-all mt-2 ${
-              cart.length > 0 && !loading ? 'bg-[#86d39e] hover:bg-[#74c68d]' : 'bg-gray-300 cursor-not-allowed'
+            className={`w-full py-4 mt-2 rounded-xl font-black text-white transition-all duration-200 text-lg uppercase tracking-wide shadow-md flex justify-center items-center gap-2 ${
+              cart.length > 0 && !loading 
+                ? 'bg-green-600 hover:bg-green-700 hover:shadow-lg active:scale-95' 
+                : 'bg-gray-400 cursor-not-allowed opacity-75'
             }`}
           >
-            {loading ? 'Processing...' : 'Complete Sale'}
+            {loading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Processing Sale...
+              </>
+            ) : (
+              'Complete Sale'
+            )}
           </button>
         </div>
       </div>
