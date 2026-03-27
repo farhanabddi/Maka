@@ -62,7 +62,36 @@ export default function Products() {
     }
   };
 
-  // 3. DELETE DATA FROM SUPABASE
+  // 3. EDIT STOCK IN SUPABASE (NEW FUNCTION)
+  const handleUpdateStock = async (id, currentStock, productName) => {
+    // Open a quick prompt to ask for the new stock amount
+    const newStockStr = window.prompt(`Enter new stock quantity for ${productName}:`, currentStock);
+    
+    // If the user clicks "Cancel" or leaves it empty, do nothing
+    if (newStockStr === null || newStockStr.trim() === '') return;
+    
+    const newStock = parseInt(newStockStr, 10);
+    
+    // Validate that they entered a real number
+    if (isNaN(newStock) || newStock < 0) {
+      return alert('Please enter a valid positive number for the stock.');
+    }
+
+    // Update Supabase
+    const { error } = await supabase
+      .from('products')
+      .update({ stock: newStock })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating stock:', error);
+      alert('Failed to update stock.');
+    } else {
+      fetchProducts(); // Refresh the list to show the updated stock
+    }
+  };
+
+  // 4. DELETE DATA FROM SUPABASE
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this product?')) return;
 
@@ -144,8 +173,20 @@ export default function Products() {
                   </td>
                   <td className="p-4 text-sm text-gray-900 font-medium">${product.price.toFixed(2)}</td>
                   <td className="p-4 text-sm text-gray-600">{product.stock}</td>
-                  <td className="p-4 text-sm text-right space-x-3">
-                    <button onClick={() => handleDelete(product.id)} className="text-red-500 hover:text-red-700 font-medium">Delete</button>
+                  <td className="p-4 text-sm text-right space-x-4">
+                    {/* NEW EDIT BUTTON */}
+                    <button 
+                      onClick={() => handleUpdateStock(product.id, product.stock, product.name)} 
+                      className="text-blue-500 hover:text-blue-700 font-medium"
+                    >
+                      Edit Stock
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(product.id)} 
+                      className="text-red-500 hover:text-red-700 font-medium"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))
