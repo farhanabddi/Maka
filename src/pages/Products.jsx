@@ -100,9 +100,9 @@ export default function Products() {
           <div className="w-32">
             <label className="block text-xs text-gray-500 font-medium mb-1">Type</label>
             <select value={newType} onChange={(e) => setNewType(e.target.value)} className="w-full p-2 border rounded bg-white">
-              <option value="Tablet">Tablet</option>
-              <option value="Syrup">Syrup</option>
-              <option value="Injection">Injection</option>
+              <option value="Card">Card</option>
+              <option value="Drugs">Drugs</option>
+              <option value="Glasses">Glasses</option>
               <option value="Service">Service</option>
             </select>
           </div>
