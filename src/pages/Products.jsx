@@ -6,11 +6,14 @@ export default function Products() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   
+  // NEW: Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  
   // Form State for adding new products
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('Service'); // Default type
-  const [newStock, setNewStock] = useState('');      // NEW: Stock state added back
+  const [newStock, setNewStock] = useState('');      // Stock state added back
 
   // 1. FETCH DATA FROM SUPABASE
   const fetchProducts = async () => {
@@ -62,7 +65,7 @@ export default function Products() {
     }
   };
 
-  // 3. EDIT STOCK IN SUPABASE (Restored exactly as you had it)
+  // 3. EDIT STOCK IN SUPABASE
   const handleUpdateStock = async (id, currentStock, productName) => {
     const newStockStr = window.prompt(`Enter new stock quantity for ${productName}:`, currentStock);
     
@@ -100,19 +103,37 @@ export default function Products() {
     }
   };
 
+  // NEW: Filter products based on search query
+  const filteredProducts = products.filter(product =>
+    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    product.type.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    <div className="max-w-6xl">
-      <div className="flex justify-between items-end mb-6">
+    <div className="max-w-6xl mx-auto pb-10">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Products & Services</h1>
           <p className="text-sm text-gray-500 mt-1">Manage your open-price inventory, classifications, and stock.</p>
         </div>
-        <button 
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-        >
-          {showForm ? 'Cancel' : '+ Add New Item'}
-        </button>
+        
+        <div className="flex gap-3 w-full md:w-auto">
+          {/* NEW: Search Bar */}
+          <input 
+            type="text" 
+            placeholder="Search items..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full md:w-64 p-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+          
+          <button 
+            onClick={() => setShowForm(!showForm)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+          >
+            {showForm ? 'Cancel' : '+ Add New Item'}
+          </button>
+        </div>
       </div>
 
       {/* Add Product Form */}
@@ -175,10 +196,12 @@ export default function Products() {
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr><td colSpan="4" className="p-8 text-center text-gray-400">Loading items...</td></tr>
-            ) : products.length === 0 ? (
-              <tr><td colSpan="4" className="p-8 text-center text-gray-400">No items found. Add one above.</td></tr>
+            ) : filteredProducts.length === 0 ? (
+              // UPDATED: Now shows this message if the search finds nothing, or if the list is completely empty
+              <tr><td colSpan="4" className="p-8 text-center text-gray-400">No items found.</td></tr>
             ) : (
-              products.map((product) => (
+              // UPDATED: Now maps over filteredProducts instead of products
+              filteredProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="p-4 text-sm font-medium text-gray-900">{product.name}</td>
                   <td className="p-4 text-sm text-gray-500">

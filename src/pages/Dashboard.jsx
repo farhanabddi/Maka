@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { DollarSign, CreditCard, TrendingDown, PackageOpen, Wallet } from 'lucide-react';
+import { Link } from 'react-router-dom'; // Added for active linking
 
 export default function Dashboard() {
   const [stats, setStats] = useState({ 
@@ -68,69 +69,77 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
-  const StatCard = ({ title, value, icon, color }) => (
-    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
-      <div className={`p-4 rounded-lg ${color}`}>{icon}</div>
-      <div>
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        <h3 className="text-2xl font-bold text-gray-900">{loading ? '...' : value}</h3>
+  // UPDATED: Added linkTo prop and hover effects for active linking
+  const StatCard = ({ title, value, icon, color, linkTo }) => {
+    const cardContent = (
+      <div className={`bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4 h-full ${linkTo ? 'hover:shadow-md hover:border-blue-400 hover:-translate-y-1 transition-all duration-200 cursor-pointer' : ''}`}>
+        <div className={`p-4 rounded-lg ${color}`}>{icon}</div>
+        <div>
+          <p className="text-sm font-medium text-gray-500">{title}</p>
+          <h3 className="text-2xl font-bold text-gray-900">{loading ? '...' : value}</h3>
+        </div>
       </div>
-    </div>
-  );
+    );
+
+    // If a link is provided, wrap the card in a Link component
+    if (linkTo) {
+      return (
+        <Link to={linkTo} className="block outline-none">
+          {cardContent}
+        </Link>
+      );
+    }
+
+    return cardContent;
+  };
 
   return (
     <div className="max-w-7xl mx-auto pb-10">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Pharmacy Overview</h1>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-        
-        {/* NEW: Today's Sales Card */}
-        <StatCard 
-          title="Today's Sales" 
-          value={`$${stats.todaySales.toFixed(2)}`} 
-          icon={<Wallet size={24} className="text-green-700" />} 
-          color="bg-green-200 border border-green-300" 
-        />
+      <div className="flex flex-col gap-6">
+        {/* TOP ROW: Today's Sales, Pending Credit, Total Expenses (3 Columns) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <StatCard 
+            title="Today's Sales" 
+            value={`$${stats.todaySales.toFixed(2)}`} 
+            icon={<Wallet size={24} className="text-green-700" />} 
+            color="bg-green-200 border border-green-300" 
+          />
+          
+          <StatCard 
+            title="Pending Credit" 
+            value={`$${stats.pendingCredit.toFixed(2)}`} 
+            icon={<CreditCard size={24} className="text-orange-600" />} 
+            color="bg-orange-100" 
+            linkTo="/credit" // Active Link
+          />
+          
+          <StatCard 
+            title="Total Expenses" 
+            value={`$${stats.totalExpenses.toFixed(2)}`} 
+            icon={<TrendingDown size={24} className="text-red-600" />} 
+            color="bg-red-100" 
+            linkTo="/expenses" // Active Link
+          />
+        </div>
 
-        <StatCard 
-          title="All-Time Revenue" 
-          value={`$${stats.totalSales.toFixed(2)}`} 
-          icon={<DollarSign size={24} className="text-blue-600" />} 
-          color="bg-blue-100" 
-        />
-        
-        <StatCard 
-          title="Pending Credit" 
-          value={`$${stats.pendingCredit.toFixed(2)}`} 
-          icon={<CreditCard size={24} className="text-orange-600" />} 
-          color="bg-orange-100" 
-        />
-        
-        <StatCard 
-          title="Total Expenses" 
-          value={`$${stats.totalExpenses.toFixed(2)}`} 
-          icon={<TrendingDown size={24} className="text-red-600" />} 
-          color="bg-red-100" 
-        />
-        
-        <StatCard 
-          title="Low Stock Alerts" 
-          value={stats.lowStock} 
-          icon={<PackageOpen size={24} className="text-purple-600" />} 
-          color="bg-purple-100" 
-        />
-      </div>
-
-      <div className="mt-8 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-        <h2 className="text-lg font-bold mb-4">Quick Actions</h2>
-        <div className="flex gap-4">
-           {/* Replace with actual React Router <Link> components if you are using them */}
-           <a href="/pos" className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm transition-colors">
-             Open POS Register
-           </a>
-           <a href="/inventory" className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 border border-gray-200 transition-colors">
-             Add New Product
-           </a>
+        {/* BOTTOM ROW: All-Time Revenue, Low Stock Alerts (2 Columns) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <StatCard 
+            title="All-Time Revenue" 
+            value={`$${stats.totalSales.toFixed(2)}`} 
+            icon={<DollarSign size={24} className="text-blue-600" />} 
+            color="bg-blue-100" 
+          />
+          
+          <StatCard 
+            title="Low Stock Alerts" 
+            value={stats.lowStock} 
+            icon={<PackageOpen size={24} className="text-purple-600" />} 
+            color="bg-purple-100" 
+            linkTo="/inventory" // Active Link (change to /products if your route is different)
+          />
         </div>
       </div>
     </div>
